@@ -228,13 +228,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Pygments** - Syntax highlighting
 - **GCC/G++** - Compilation toolchain
 
-v
-
-## 🌟 Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=yourusername/cpp-ide&type=Date)](https://star-history.com/#yourusername/cpp-ide&Date)
-
----
 
 <p align="center">
   Made with ❤️ by the C/C++ IDE team
