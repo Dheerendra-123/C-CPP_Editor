@@ -1,4 +1,4 @@
-# 🧠 C/C++ IDE
+# 🧠 C/C++ code Editor
 
 [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://python.org)
 [![PyQt5](https://img.shields.io/badge/GUI-PyQt5-green.svg)](https://pypi.org/project/PyQt5/)
@@ -45,7 +45,7 @@ Before installing, make sure you have:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/cpp-ide.git
+git clone https://github.com/Dheerendra-123/C-CPP_Editor.git
 cd cpp-ide
 
 # Run the IDE
@@ -129,7 +129,7 @@ The IDE can be configured through `config/settings.json`:
 
 ```bash
 # Clone repository
-git clone https://github.com/Dheerendra-123/C-CPP_IDE.git
+git clone https://github.com/Dheerendra-123/C-CPP_Editor.git
 cd cpp-ide
 
 # Create virtual environment
