@@ -29,8 +29,6 @@ class OutputEmitter(QObject):
     output_signal = pyqtSignal(str)
 
 
-import time
-
 def kill_process_using_file(file_path):
     killed = False
     for proc in psutil.process_iter(['pid', 'exe']):
@@ -49,7 +47,7 @@ def kill_process_using_file(file_path):
 
 class CppRunner(QThread):
     output_signal = pyqtSignal(str)
-    process_created = pyqtSignal(str)  # Signal to create process in main thread
+    process_created = pyqtSignal(str)  
 
     def __init__(self, file_path):
         super().__init__()
@@ -70,7 +68,6 @@ class CppRunner(QThread):
         
         self.output_signal.emit(f"--- Compiling {filename} ---\n")
 
-        # Kill any running processes using this executable
         if os.path.exists(output_exe):
             self.output_signal.emit("Stopping any running instances...\n")
             kill_process_using_file(output_exe)
@@ -92,7 +89,6 @@ class CppRunner(QThread):
                     self.output_signal.emit(f"Error removing old executable: {e}\n")
                     break
 
-        # Compile
         compiler = 'gcc' if file_ext == '.c' else 'g++'
         compile_cmd = [compiler, self.file_path, '-o', output_exe]
         
@@ -120,14 +116,10 @@ class CppRunner(QThread):
         except Exception as e:
             self.output_signal.emit(f"Error during compilation: {e}\n")
             return
-
-        # Check if executable was created
         if not os.path.exists(output_exe):
             self.output_signal.emit("Error: Executable was not created.\n")
             return
 
-        # Signal to create and run the process in main thread
-        # self.output_signal.emit(f"--- Running {os.path.basename(output_exe)} ---\n")
         self.output_signal.emit("\n")
         self.process_created.emit(output_exe)
 
@@ -153,8 +145,7 @@ class TerminalWidget(QTextEdit):
         self.cpp_process = None
         
         self.setUndoRedoEnabled(False)
-        
-        # Terminal process for regular commands
+
         self.process = QProcess(self)
         self.process.setProgram("cmd.exe")
         self.process.setWorkingDirectory(os.getcwd())
@@ -163,37 +154,28 @@ class TerminalWidget(QTextEdit):
         self.process.start()
 
     def start_cpp_process(self, exe_path):
-        """Start the compiled C++ executable"""
-        # Clean up any existing C++ process
         if self.cpp_process is not None:
-            try:
-                if self.cpp_process.state() == QProcess.Running:
-                    self.cpp_process.terminate()
-                    self.cpp_process.waitForFinished(2000)
-                self.cpp_process.deleteLater()
-            except:
-                pass
+            self.stop_cpp_process()
             
         self.cpp_process = QProcess(self)
         self.cpp_process.setProgram(exe_path)
         self.cpp_process.setWorkingDirectory(os.path.dirname(exe_path))
         self.cpp_process.setProcessChannelMode(QProcess.MergedChannels)
-        
-        # Connect signals
+
         self.cpp_process.readyReadStandardOutput.connect(self.read_cpp_output)
         self.cpp_process.finished.connect(self.on_cpp_finished)
-        
-        # Start process
+        self.cpp_process.errorOccurred.connect(self.on_cpp_error)
+
         self.cpp_process.start()
         
         if self.cpp_process.waitForStarted(3000):
             self.running_program = True
+            self.append_output(f"--- Running {os.path.basename(exe_path)} ---\n")
         else:
             self.append_output("Error: Failed to start the executable.\n")
             self.running_program = False
 
     def read_cpp_output(self):
-        """Read output from C++ process"""
         try:
             if self.cpp_process and self.cpp_process.state() == QProcess.Running:
                 output = self.cpp_process.readAllStandardOutput().data().decode("utf-8", errors='replace')
@@ -203,14 +185,15 @@ class TerminalWidget(QTextEdit):
             pass
 
     def on_cpp_finished(self, exit_code, exit_status):
-        """Handle C++ process finishing"""
         self.running_program = False
-        if exit_code == 0:
-            self.append_output("\n")
-            self.append_output(f"\n--- Process finished successfully (exit code: {exit_code}) ---\n")
-        else:
-            self.append_output("\n")
-            self.append_output(f"\n--- Process finished with error (exit code: {exit_code}) ---\n")
+        
+        if exit_status == QProcess.NormalExit:
+            if exit_code == 0:
+                self.append_output("\n--- Process finished successfully ---\n")
+            else:
+                self.append_output(f"\n--- Process finished with exit code: {exit_code} ---\n")
+        else:  # CrashExit
+            self.append_output("\n--- Process was terminated ---\n")
 
     def append_output(self, text):
         self.moveCursor(QTextCursor.End)
@@ -220,11 +203,15 @@ class TerminalWidget(QTextEdit):
 
     def keyPressEvent(self, event):
         key = event.key()
-        
-        # If a C/C++ program is running, send input to it
+
+        if event.key() == Qt.Key_C and event.modifiers() == Qt.ControlModifier:
+            if self.running_program and self.cpp_process:
+                self.append_output("^C\n")
+                self.stop_cpp_process()
+                return
+
         if self.running_program and self.cpp_process and self.cpp_process.state() == QProcess.Running:
             if key == Qt.Key_Return or key == Qt.Key_Enter:
-                # Send the input to the running C/C++ program
                 input_text = self.command_buffer
                 try:
                     self.cpp_process.write((input_text + "\n").encode("utf-8"))
@@ -247,8 +234,7 @@ class TerminalWidget(QTextEdit):
                     self.command_buffer += text
                     self.insertPlainText(text)
                 return
-        
-        # Normal terminal commands
+
         if key in (Qt.Key_Backspace, Qt.Key_Delete):
             if self.command_buffer:
                 self.command_buffer = self.command_buffer[:-1]
@@ -298,7 +284,6 @@ class TerminalWidget(QTextEdit):
                 pass
 
     def run_cpp_code(self, file_path):
-        # Stop any previous processes
         self.stop_all_processes()
             
         self.runner = CppRunner(file_path)
@@ -317,31 +302,38 @@ class TerminalWidget(QTextEdit):
             pass
 
     def stop_all_processes(self):
-        """Stop all running processes"""
-        # Stop C++ executable
         if self.cpp_process is not None:
             try:
                 if self.cpp_process.state() == QProcess.Running:
-                    self.cpp_process.terminate()
-                    if not self.cpp_process.waitForFinished(1000):
-                        self.cpp_process.kill()
-                    self.cpp_process.waitForFinished(1000)
+                    self.cpp_process.write(b'\x03') 
+
+                    if not self.cpp_process.waitForFinished(500):
+                        self.cpp_process.terminate()
+                        if not self.cpp_process.waitForFinished(2000):
+                            self.cpp_process.kill()
+                            self.cpp_process.waitForFinished(1000)
+                            
                 self.cpp_process.deleteLater()
                 self.cpp_process = None
-            except:
-                pass
-            self.running_program = False
-        
-        # Stop runner thread
+            except Exception as e:
+                print(f"Error stopping C++ process: {e}")
+            finally:
+                self.running_program = False
+
         if self.runner is not None:
             try:
                 if self.runner.isRunning():
+                    self.runner.requestInterruption()
                     self.runner.quit()
-                    self.runner.wait(2000)
+
+                    if not self.runner.wait(3000):
+                        self.runner.terminate()
+                        self.runner.wait(1000)
+                        
                 self.runner.deleteLater()
                 self.runner = None
-            except:
-                pass
+            except Exception as e:
+                print(f"Error stopping runner thread: {e}")
 
     def read_terminal_output(self):
         try:
@@ -353,27 +345,28 @@ class TerminalWidget(QTextEdit):
             pass
 
     def closeEvent(self, event):
-        """Clean shutdown of all processes"""
         try:
-            # Stop all processes
             self.stop_all_processes()
             
-            # Clean up terminal process
             if hasattr(self, 'process') and self.process is not None:
                 if self.process.state() == QProcess.Running:
-                    self.process.terminate()
-                    self.process.waitForFinished(1000)
-                    if self.process.state() == QProcess.Running:
-                        self.process.kill()
-                        self.process.waitForFinished(1000)
-        except:
-            pass
+                    try:
+                        self.process.write(b'exit\n')
+                        if not self.process.waitForFinished(1000):
+                            self.process.terminate()
+                            if not self.process.waitForFinished(2000):
+                                self.process.kill()
+                                self.process.waitForFinished(1000)
+                    except:
+                        pass
+                        
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
             
         super().closeEvent(event)
         
     def stop_process(self):
-        """Public method to stop processes"""
-        self.stop_all_processes()()
+        self.stop_all_processes()  
 
 
 class FindReplaceWidget(QFrame):
@@ -1361,24 +1354,43 @@ class PythonIDE(QMainWindow):
                 if hasattr(self.terminal, 'stop_process') and callable(self.terminal.stop_process):
                     self.terminal.stop_process()
 
+                QApplication.processEvents()
+
                 if hasattr(self.terminal, 'process') and self.terminal.process:
                     process = self.terminal.process
 
                     if process.state() == QProcess.Running:
-                        process.terminate()
+                        try:
+                            process.write(b'exit\n')
 
-                        if not process.waitForFinished(3000): 
-                            print("Process didn't terminate gracefully, forcing kill...")
-                            process.kill()
-                            process.waitForFinished(1000)
+                            if not process.waitForFinished(1000):
+                                print("Sending terminate signal to terminal process...")
+                                process.terminate()
+
+                                if not process.waitForFinished(3000):
+                                    print("Terminal process didn't terminate gracefully, forcing kill...")
+                                    process.kill()
+                                    process.waitForFinished(1000)
+                                else:
+                                    print("Terminal process terminated gracefully")
+                            else:
+                                print("Terminal process exited normally")
+                        
+                        except Exception as write_error:
+                            print(f"Could not send exit command: {write_error}, proceeding with terminate...")
+                            process.terminate()
+                            if not process.waitForFinished(3000):
+                                print("Process didn't terminate gracefully, forcing kill...")
+                                process.kill()
+                                process.waitForFinished(1000)
 
                     try:
                         process.deleteLater()
-                    except RuntimeError:
-                        pass
+                    except RuntimeError as e:
+                        print(f"Process already deleted: {e}")
 
                     self.terminal.process = None
-        
+
         except Exception as e:
             print(f"Error during cleanup: {e}")
 
@@ -1386,10 +1398,11 @@ class PythonIDE(QMainWindow):
                 if (hasattr(self, 'terminal') and self.terminal and 
                     hasattr(self.terminal, 'process') and self.terminal.process):
                     if self.terminal.process.state() == QProcess.Running:
+                        print("Emergency cleanup: force killing terminal process")
                         self.terminal.process.kill()
                         self.terminal.process.waitForFinished(500)
-            except:
-                pass  
+            except Exception as emergency_error:
+                print(f"Emergency cleanup failed: {emergency_error}")
         
         finally:
             event.accept()
