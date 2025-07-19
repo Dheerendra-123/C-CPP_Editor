@@ -230,7 +230,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 
 <p align="center">
-  Made with ❤️ by the C/C++ IDE team
+  Made with ❤️ by the C/C++ Code Editor team
 </p>
 
 <p align="center">
