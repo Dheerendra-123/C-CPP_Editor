@@ -990,7 +990,7 @@ class CustomTabBar(QTabBar):
 class PythonIDE(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("C/C++ IDE")
+        self.setWindowTitle("C/C++ Code Editor")
         self.setWindowIcon(QIcon(get_icon_path())) 
         self.setGeometry(100, 100, 1200, 800)
         self.init_ui()
