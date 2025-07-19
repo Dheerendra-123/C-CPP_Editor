@@ -7,10 +7,13 @@ from PyQt5.QtWidgets import (
     QHBoxLayout, QLineEdit, QPushButton, QLabel, QFrame,
     QCheckBox, QShortcut, QMenu, QInputDialog, QToolButton,QTextEdit,QStackedWidget,QTabBar
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QObject,QProcess
+from PyQt5.QtCore import Qt, pyqtSignal, QObject,QProcess,QThread
 from PyQt5.QtGui import QKeySequence, QFont, QTextCharFormat, QTextCursor, QColor, QTextDocument,QFont,QIcon
 from editor import CodeEditor
 import subprocess
+import psutil 
+import time
+
 
 def get_icon_path():
     if getattr(sys, 'frozen', False):
@@ -24,6 +27,108 @@ app.setWindowIcon(QIcon(get_icon_path()))
 
 class OutputEmitter(QObject):
     output_signal = pyqtSignal(str)
+
+
+import time
+
+def kill_process_using_file(file_path):
+    killed = False
+    for proc in psutil.process_iter(['pid', 'exe']):
+        try:
+            if proc.info['exe'] and proc.info['exe'].lower() == file_path.lower():
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except psutil.TimeoutExpired:
+                    proc.kill()
+                killed = True
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+    return killed
+
+
+class CppRunner(QThread):
+    output_signal = pyqtSignal(str)
+    process_created = pyqtSignal(str)  # Signal to create process in main thread
+
+    def __init__(self, file_path):
+        super().__init__()
+        self.file_path = file_path
+
+    def run(self):
+        if not self.file_path or not os.path.exists(self.file_path):
+            self.output_signal.emit("Error: Please save the file first before running.\n")
+            return
+
+        file_ext = os.path.splitext(self.file_path)[1]
+        if file_ext not in ['.c', '.cpp']:
+            self.output_signal.emit("Error: Unsupported file type. Only .c and .cpp are supported.\n")
+            return
+
+        filename = os.path.basename(self.file_path)
+        output_exe = self.file_path.replace(file_ext, '.exe')
+        
+        self.output_signal.emit(f"--- Compiling {filename} ---\n")
+
+        # Kill any running processes using this executable
+        if os.path.exists(output_exe):
+            self.output_signal.emit("Stopping any running instances...\n")
+            kill_process_using_file(output_exe)
+            time.sleep(0.5)
+            
+            # Try to remove old executable
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                try:
+                    os.remove(output_exe)
+                    break
+                except PermissionError:
+                    if attempt < max_attempts - 1:
+                        self.output_signal.emit(f"Waiting for file access... (attempt {attempt + 1})\n")
+                        time.sleep(1)
+                    else:
+                        self.output_signal.emit(f"Warning: Could not delete old executable.\n")
+                except Exception as e:
+                    self.output_signal.emit(f"Error removing old executable: {e}\n")
+                    break
+
+        # Compile
+        compiler = 'gcc' if file_ext == '.c' else 'g++'
+        compile_cmd = [compiler, self.file_path, '-o', output_exe]
+        
+        self.output_signal.emit(f"Running: {' '.join(compile_cmd)}\n")
+        
+        try:
+            compile_result = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=30)
+            
+            if compile_result.returncode != 0:
+                self.output_signal.emit("--- Compilation Failed ---\n")
+                self.output_signal.emit(compile_result.stderr)
+                if compile_result.stdout:
+                    self.output_signal.emit(compile_result.stdout)
+                return
+            else:
+                self.output_signal.emit("--- Compilation Successful ---\n")
+                self.output_signal.emit(" ")
+                if compile_result.stdout:
+                    self.output_signal.emit(compile_result.stdout)
+                
+        except subprocess.TimeoutExpired:
+            self.output_signal.emit("Error: Compilation timed out.\n")
+            return
+        except Exception as e:
+            self.output_signal.emit(f"Error during compilation: {e}\n")
+            return
+
+        # Check if executable was created
+        if not os.path.exists(output_exe):
+            self.output_signal.emit("Error: Executable was not created.\n")
+            return
+
+        # Signal to create and run the process in main thread
+        self.output_signal.emit(f"--- Running {os.path.basename(output_exe)} ---\n")
+        self.process_created.emit(output_exe)
+
 
 class TerminalWidget(QTextEdit):
     def __init__(self, parent=None):
@@ -41,27 +146,107 @@ class TerminalWidget(QTextEdit):
         self.setFont(font)
         
         self.command_buffer = ""
+        self.runner = None
+        self.running_program = False
+        self.cpp_process = None
         
         self.setUndoRedoEnabled(False)
         
-        self.emitter = OutputEmitter()
-        self.emitter.output_signal.connect(self.append_output)
-        
+        # Terminal process for regular commands
         self.process = QProcess(self)
         self.process.setProgram("cmd.exe")
         self.process.setWorkingDirectory(os.getcwd())
         self.process.setProcessChannelMode(QProcess.MergedChannels)
-        self.process.readyReadStandardOutput.connect(self.read_output)
+        self.process.readyReadStandardOutput.connect(self.read_terminal_output)
         self.process.start()
+
+    def start_cpp_process(self, exe_path):
+        """Start the compiled C++ executable"""
+        # Clean up any existing C++ process
+        if self.cpp_process is not None:
+            try:
+                if self.cpp_process.state() == QProcess.Running:
+                    self.cpp_process.terminate()
+                    self.cpp_process.waitForFinished(2000)
+                self.cpp_process.deleteLater()
+            except:
+                pass
+            
+        self.cpp_process = QProcess(self)
+        self.cpp_process.setProgram(exe_path)
+        self.cpp_process.setWorkingDirectory(os.path.dirname(exe_path))
+        self.cpp_process.setProcessChannelMode(QProcess.MergedChannels)
+        
+        # Connect signals
+        self.cpp_process.readyReadStandardOutput.connect(self.read_cpp_output)
+        self.cpp_process.finished.connect(self.on_cpp_finished)
+        
+        # Start process
+        self.cpp_process.start()
+        
+        if self.cpp_process.waitForStarted(3000):
+            self.running_program = True
+        else:
+            self.append_output("Error: Failed to start the executable.\n")
+            self.running_program = False
+
+    def read_cpp_output(self):
+        """Read output from C++ process"""
+        try:
+            if self.cpp_process and self.cpp_process.state() == QProcess.Running:
+                output = self.cpp_process.readAllStandardOutput().data().decode("utf-8", errors='replace')
+                if output:
+                    self.append_output(output)
+        except:
+            pass
+
+    def on_cpp_finished(self, exit_code, exit_status):
+        """Handle C++ process finishing"""
+        self.running_program = False
+        if exit_code == 0:
+            self.append_output("\n")
+            self.append_output(f"\n--- Process finished successfully (exit code: {exit_code}) ---\n")
+        else:
+            self.append_output("\n")
+            self.append_output(f"\n--- Process finished with error (exit code: {exit_code}) ---\n")
 
     def append_output(self, text):
         self.moveCursor(QTextCursor.End)
         self.insertPlainText(text)
         self.moveCursor(QTextCursor.End)
+        self.ensureCursorVisible()
 
     def keyPressEvent(self, event):
         key = event.key()
         
+        # If a C/C++ program is running, send input to it
+        if self.running_program and self.cpp_process and self.cpp_process.state() == QProcess.Running:
+            if key == Qt.Key_Return or key == Qt.Key_Enter:
+                # Send the input to the running C/C++ program
+                input_text = self.command_buffer
+                try:
+                    self.cpp_process.write((input_text + "\n").encode("utf-8"))
+                    self.append_output(input_text + "\n")
+                except:
+                    pass
+                self.command_buffer = ""
+                return
+            elif key in (Qt.Key_Backspace, Qt.Key_Delete):
+                if self.command_buffer:
+                    self.command_buffer = self.command_buffer[:-1]
+                    cursor = self.textCursor()
+                    cursor.movePosition(QTextCursor.End)
+                    cursor.deletePreviousChar()
+                    self.setTextCursor(cursor)
+                return
+            else:
+                text = event.text()
+                if text and text.isprintable():
+                    self.command_buffer += text
+                    self.insertPlainText(text)
+                return
+        
+        # Normal terminal commands
         if key in (Qt.Key_Backspace, Qt.Key_Delete):
             if self.command_buffer:
                 self.command_buffer = self.command_buffer[:-1]
@@ -79,12 +264,15 @@ class TerminalWidget(QTextEdit):
                     self.clear_terminal()
                 else:
                     self.append_output("\n")
-                    self.process.write((command + "\n").encode("utf-8"))
+                    try:
+                        self.process.write((command + "\n").encode("utf-8"))
+                    except:
+                        pass
             self.command_buffer = ""
             return
         
         text = event.text()
-        if text:
+        if text and text.isprintable():
             self.command_buffer += text
             self.insertPlainText(text)
 
@@ -95,62 +283,95 @@ class TerminalWidget(QTextEdit):
 
     def change_working_directory(self, folder_path):
         if folder_path and os.path.exists(folder_path):
-            drive = os.path.splitdrive(folder_path)[0]
-            if drive:
-                self.process.write(f"{drive}\n".encode("utf-8"))
+            try:
+                drive = os.path.splitdrive(folder_path)[0]
+                if drive:
+                    self.process.write(f"{drive}\n".encode("utf-8"))
+                    
+                command = f'cd /d "{folder_path}"\n'
+                self.process.write(command.encode("utf-8"))
                 
-            command = f'cd /d "{folder_path}"\n'
-            self.process.write(command.encode("utf-8"))
-            
-            self.process.setWorkingDirectory(folder_path)
+                self.process.setWorkingDirectory(folder_path)
+            except:
+                pass
 
     def run_cpp_code(self, file_path):
-        if file_path and os.path.exists(file_path):
-            file_ext = os.path.splitext(file_path)[1]
-            if file_ext not in ['.c', '.cpp']:
-                self.append_output("Unsupported file type. Only .c and .cpp are supported.\n")
-                return
+        # Stop any previous processes
+        self.stop_all_processes()
+            
+        self.runner = CppRunner(file_path)
+        self.runner.output_signal.connect(self.append_output)
+        self.runner.process_created.connect(self.start_cpp_process)
+        self.runner.finished.connect(self.on_runner_finished)
+        self.runner.start()
 
-            output_exe = file_path.replace(file_ext, '.exe')
-            compiler = 'gcc' if file_ext == '.c' else 'g++'
-            compile_cmd = [compiler, file_path, '-o', output_exe]
+    def on_runner_finished(self):
+        """Handle runner thread finishing"""
+        try:
+            if self.runner:
+                self.runner.deleteLater()
+                self.runner = None
+        except:
+            pass
 
+    def stop_all_processes(self):
+        """Stop all running processes"""
+        # Stop C++ executable
+        if self.cpp_process is not None:
             try:
-                # Compile the code
-                compile_result = subprocess.run(compile_cmd, capture_output=True, text=True)
+                if self.cpp_process.state() == QProcess.Running:
+                    self.cpp_process.terminate()
+                    if not self.cpp_process.waitForFinished(1000):
+                        self.cpp_process.kill()
+                    self.cpp_process.waitForFinished(1000)
+                self.cpp_process.deleteLater()
+                self.cpp_process = None
+            except:
+                pass
+            self.running_program = False
+        
+        # Stop runner thread
+        if self.runner is not None:
+            try:
+                if self.runner.isRunning():
+                    self.runner.quit()
+                    self.runner.wait(2000)
+                self.runner.deleteLater()
+                self.runner = None
+            except:
+                pass
 
-                if compile_result.returncode != 0:
-                    self.append_output("Compilation failed:\n" + compile_result.stderr)
-                    return
-
-                # Run the compiled executable
-                run_result = subprocess.run([output_exe], capture_output=True, text=True)
-
-                self.append_output("Output:\n" + run_result.stdout)
-                if run_result.stderr:
-                    self.append_output("Errors:\n" + run_result.stderr)
-
-            except Exception as e:
-                self.append_output(f"Error running code: {e}\n")
-
-        else:
-            self.append_output("Please save the file first before running.\n")
-
-    def read_output(self):
-        output = self.process.readAllStandardOutput().data().decode("utf-8")
-        self.emitter.output_signal.emit(output)
+    def read_terminal_output(self):
+        try:
+            if self.process and self.process.state() == QProcess.Running:
+                output = self.process.readAllStandardOutput().data().decode("utf-8", errors='replace')
+                if output:
+                    self.append_output(output)
+        except:
+            pass
 
     def closeEvent(self, event):
-        if self.process.state() == QProcess.Running:
-            self.process.terminate()
-            self.process.waitForFinished(1000)
+        """Clean shutdown of all processes"""
+        try:
+            # Stop all processes
+            self.stop_all_processes()
+            
+            # Clean up terminal process
+            if hasattr(self, 'process') and self.process is not None:
+                if self.process.state() == QProcess.Running:
+                    self.process.terminate()
+                    self.process.waitForFinished(1000)
+                    if self.process.state() == QProcess.Running:
+                        self.process.kill()
+                        self.process.waitForFinished(1000)
+        except:
+            pass
+            
         super().closeEvent(event)
         
     def stop_process(self):
-        if self.process and self.process.state() == QProcess.Running:
-            self.process.terminate()
-            if not self.process.waitForFinished(1000):
-                self.process.kill()
+        """Public method to stop processes"""
+        self.stop_all_processes()()
 
 
 class FindReplaceWidget(QFrame):

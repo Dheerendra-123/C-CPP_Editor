@@ -55,25 +55,25 @@ class CppHighlighter(QSyntaxHighlighter):
         self.namespaces = ['std', 'boost']
 
         self.formats = {
-            'keyword': self._create_format(QColor("#569CD6"), True),  # Blue
-            'builtin': self._create_format(QColor("#4EC9B0")),  # Teal
-            'type': self._create_format(QColor("#4EC9B0"), True),  # Teal bold
-            'constant': self._create_format(QColor("#B5CEA8")),  # Light green
+            'keyword': self._create_format(QColor("#2C80C5"), True),  # Blue
+            'builtin': self._create_format(QColor("#3685C5")),  # Blue
+            'type': self._create_format(QColor("#14CCA7"), True),  # Teal bold
+            'constant': self._create_format(QColor("#569CD6")),  # Blue
             'namespace': self._create_format(QColor("#4EC9B0")),  # Teal
             'string': self._create_format(QColor("#CE9178")),  # Orange
             'char': self._create_format(QColor("#CE9178")),  # Orange
             'comment': self._create_format(QColor("#6A9955")),  # Green
             'comment_block': self._create_format(QColor("#6A9955")),  # Green
-            'number': self._create_format(QColor("#B5CEA8")),  # Light green
-            'preprocessor': self._create_format(QColor("#9B9B9B")),  # Gray
-            'operator': self._create_format(QColor("#D4D4D4")),  # Light gray
-            'bracket_round': self._create_format(QColor("#FFD700"), True),  # Gold
-            'bracket_curly': self._create_format(QColor("#DA70D6"), True),  # Orchid
-            'bracket_square': self._create_format(QColor("#87CEEB"), True),  # Sky blue
-            'bracket_angle': self._create_format(QColor("#FFA500"), True),  # Orange
-            'class_name': self._create_format(QColor("#4EC9B0"), True),  # Teal bold
-            'function_name': self._create_format(QColor("#DCDCAA")),  # Light yellow
-            'escape_sequence': self._create_format(QColor("#D7BA7D")),  # Light orange
+            'number': self._create_format(QColor("#81AD6A")),  # Light green
+            'preprocessor': self._create_format(QColor("#CA60C1")),  # Purple
+            'operator': self._create_format(QColor("#804949")),  # Light gray
+            'bracket_round': self._create_format(QColor("#FFD700")),  # Gold
+            'bracket_curly': self._create_format(QColor("#FFD700")),  # Gold
+            'bracket_square': self._create_format(QColor("#FFD700")),  # Gold
+            'bracket_angle': self._create_format(QColor("#FFD700")),  # Gold
+            'class_name': self._create_format(QColor("#2FBEA1"), True),  # Teal bold
+            'function_name': self._create_format(QColor("#E8E85C")),  # Light yellow
+            'escape_sequence': self._create_format(QColor("#D0A851")),  # Light orange
         }
 
         self._excluded_ranges = []
