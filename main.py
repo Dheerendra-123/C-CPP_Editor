@@ -73,7 +73,7 @@ class CppRunner(QThread):
             kill_process_using_file(output_exe)
             time.sleep(0.5)
             
-            # Try to remove old executable
+
             max_attempts = 3
             for attempt in range(max_attempts):
                 try:
@@ -169,8 +169,7 @@ class TerminalWidget(QTextEdit):
         self.cpp_process.start()
         
         if self.cpp_process.waitForStarted(3000):
-            self.running_program = True
-            self.append_output(f"--- Running {os.path.basename(exe_path)} ---\n")
+            self.append_output(" ")
         else:
             self.append_output("Error: Failed to start the executable.\n")
             self.running_program = False
@@ -189,11 +188,45 @@ class TerminalWidget(QTextEdit):
         
         if exit_status == QProcess.NormalExit:
             if exit_code == 0:
+                self.append_output("\n")
                 self.append_output("\n--- Process finished successfully ---\n")
             else:
                 self.append_output(f"\n--- Process finished with exit code: {exit_code} ---\n")
-        else:  # CrashExit
-            self.append_output("\n--- Process was terminated ---\n")
+        else: 
+            self.append_output("\n--- Process finished with exit code: {exit_code} ---\n")
+
+    def on_cpp_error(self, error):
+        self.running_program = False
+        error_messages = {
+            QProcess.FailedToStart: "Failed to start the executable",
+            QProcess.Crashed: "Process crashed",
+            QProcess.Timedout: "Process timed out",
+            QProcess.WriteError: "Write error occurred",
+            QProcess.ReadError: "Read error occurred",
+            QProcess.UnknownError: "Unknown error occurred"
+        }
+        
+        error_msg = error_messages.get(error, f"Process error: {error}")
+        self.append_output(f"\n--- Error: {error_msg} ---\n")
+
+    def stop_cpp_process(self):
+        if self.cpp_process is not None:
+            try:
+                if self.cpp_process.state() == QProcess.Running:
+                    self.cpp_process.write(b'\x03')
+
+                    if not self.cpp_process.waitForFinished(500):
+                        self.cpp_process.terminate()
+                        if not self.cpp_process.waitForFinished(2000):
+                            self.cpp_process.kill()
+                            self.cpp_process.waitForFinished(1000)
+                            
+                self.cpp_process.deleteLater()
+                self.cpp_process = None
+            except Exception as e:
+                print(f"Error stopping C++ process: {e}")
+            finally:
+                self.running_program = False
 
     def append_output(self, text):
         self.moveCursor(QTextCursor.End)
@@ -293,7 +326,6 @@ class TerminalWidget(QTextEdit):
         self.runner.start()
 
     def on_runner_finished(self):
-        """Handle runner thread finishing"""
         try:
             if self.runner:
                 self.runner.deleteLater()
@@ -366,7 +398,7 @@ class TerminalWidget(QTextEdit):
         super().closeEvent(event)
         
     def stop_process(self):
-        self.stop_all_processes()  
+        self.stop_all_processes() 
 
 
 class FindReplaceWidget(QFrame):

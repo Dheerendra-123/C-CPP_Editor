@@ -7,7 +7,7 @@
 
 A lightweight, modern, and customizable IDE for C and C++ development, built entirely with **Python** and **PyQt5**. Features a multi-tab editor, integrated terminal, syntax highlighting, autocompletion, and support for compiling and running C/C++ code — all in a clean and minimal interface.
 
-![IDE Screenshot](docs/screenshot.png)
+![IDE Screenshot](resources/ide.png)
 
 ## ✨ Features
 
@@ -47,9 +47,6 @@ Before installing, make sure you have:
 # Clone the repository
 git clone https://github.com/yourusername/cpp-ide.git
 cd cpp-ide
-
-# Install dependencies
-pip install -r requirements.txt
 
 # Run the IDE
 python main.py
