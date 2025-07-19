@@ -1,16 +1,10 @@
-from PyQt5.QtWidgets import QPlainTextEdit,QTextEdit, QCompleter, QWidget
+from PyQt5.QtWidgets import QPlainTextEdit, QTextEdit, QCompleter, QWidget
 from PyQt5.QtGui import QTextCursor, QFont, QPainter, QColor, QTextFormat
 from PyQt5.QtCore import Qt, QStringListModel, QRect, QSize
-import keyword
 import re
 
-try:
-    import jedi
-    HAS_JEDI = True
-except ImportError:
-    HAS_JEDI = False
 
-from highlighter import PythonHighlighter
+from cpp_highlighter import CppHighlighter  
 
 
 class LineNumberArea(QWidget):
@@ -30,7 +24,7 @@ class CodeEditor(QPlainTextEdit):
         super().__init__(parent)
 
         self.setFont(QFont("Consolas", 12))
-        self.highlighter = PythonHighlighter(self.document())
+        self.highlighter = CppHighlighter(self.document())
 
         # Line number area
         self.lineNumberArea = LineNumberArea(self)
@@ -49,7 +43,6 @@ class CodeEditor(QPlainTextEdit):
         self.completer.activated.connect(self.insert_completion)
         self.setup_completer_style()
 
-        self.use_jedi = HAS_JEDI
 
     # ------------------------
     # Line number methods
@@ -179,31 +172,63 @@ class CodeEditor(QPlainTextEdit):
 
     def update_completions(self):
         code = self.toPlainText()
-        suggestions = set(keyword.kwlist + [
-            'print', 'input', 'len', 'open', 'range', 'str', 'int', 'float',
-            'list', 'dict', 'set', 'type', 'isinstance', 'super', 'dir'
-        ])
-        suggestions.update(re.findall(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*=', code))
-        suggestions.update(re.findall(r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', code))
-        suggestions.update(re.findall(r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[:\(]', code))
-        suggestions.update(re.findall(r'import\s+([a-zA-Z0-9_\.]+)', code))
-        suggestions = sorted([s for s in suggestions if s])
+        
+        # C/C++ keywords and common functions
+        cpp_keywords = [
+            # C keywords
+            'auto', 'break', 'case', 'char', 'const', 'continue', 'default', 'do',
+            'double', 'else', 'enum', 'extern', 'float', 'for', 'goto', 'if',
+            'int', 'long', 'register', 'return', 'short', 'signed', 'sizeof', 'static',
+            'struct', 'switch', 'typedef', 'union', 'unsigned', 'void', 'volatile', 'while',
+            
+            # C++ keywords
+            'alignas', 'alignof', 'and', 'and_eq', 'asm', 'bitand', 'bitor', 'bool',
+            'catch', 'class', 'compl', 'const_cast', 'constexpr', 'decltype', 'delete',
+            'dynamic_cast', 'explicit', 'export', 'false', 'friend', 'inline', 'mutable',
+            'namespace', 'new', 'noexcept', 'not', 'not_eq', 'nullptr', 'operator', 'or',
+            'or_eq', 'private', 'protected', 'public', 'reinterpret_cast', 'static_assert',
+            'static_cast', 'template', 'this', 'thread_local', 'throw', 'true', 'try',
+            'typeid', 'typename', 'using', 'virtual', 'wchar_t', 'xor', 'xor_eq',
+            
+            # Standard library functions
+            'printf', 'scanf', 'malloc', 'free', 'strlen', 'strcpy', 'strcmp', 'strcat',
+            'memcpy', 'memset', 'fopen', 'fclose', 'fread', 'fwrite', 'fprintf', 'fscanf',
+            'cout', 'cin', 'endl', 'std', 'vector', 'string', 'map', 'set', 'list',
+            'queue', 'stack', 'pair', 'make_pair', 'sort', 'find', 'push_back', 'size',
+            'empty', 'begin', 'end', 'insert', 'erase', 'clear'
+        ]
+        
+        suggestions = set(cpp_keywords)
+        
+        # Extract variable names (simple heuristic)
+        suggestions.update(re.findall(r'\b(?:int|float|double|char|bool|string|auto)\s+([a-zA-Z_][a-zA-Z0-9_]*)', code))
+        
+        # Extract function names
+        suggestions.update(re.findall(r'\b(?:int|float|double|char|bool|void|string|auto)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', code))
+        
+        # Extract class names
+        suggestions.update(re.findall(r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)', code))
+        
+        # Extract struct names
+        suggestions.update(re.findall(r'struct\s+([a-zA-Z_][a-zA-Z0-9_]*)', code))
+        
+        # Extract namespace names
+        suggestions.update(re.findall(r'namespace\s+([a-zA-Z_][a-zA-Z0-9_]*)', code))
+        
+        # Extract #include headers (without angle brackets or quotes)
+        suggestions.update(re.findall(r'#include\s*[<"]\s*([a-zA-Z0-9_\.]+)\s*[>"]', code))
+        
+        # Extract #define macros
+        suggestions.update(re.findall(r'#define\s+([a-zA-Z_][a-zA-Z0-9_]*)', code))
+        
+        # Extract enum values
+        enum_matches = re.findall(r'enum\s*(?:[a-zA-Z_][a-zA-Z0-9_]*)?\s*\{([^}]+)\}', code)
+        for enum_body in enum_matches:
+            enum_values = re.findall(r'([a-zA-Z_][a-zA-Z0-9_]*)', enum_body)
+            suggestions.update(enum_values)
+        
+        suggestions = sorted([s for s in suggestions if s and len(s) > 1])
         self.completer.model().setStringList(suggestions)
-
-    def update_completions_with_jedi(self):
-        try:
-            code = self.toPlainText()
-            line = self.textCursor().blockNumber() + 1
-            col = self.textCursor().positionInBlock()
-            script = jedi.Script(code=code, path='editor.py')
-            completions = script.complete(line=line, column=col)
-            suggestions = sorted(set(comp.name for comp in completions if comp.name))
-            if not suggestions:
-                self.update_completions()
-            else:
-                self.completer.model().setStringList(suggestions)
-        except Exception:
-            self.update_completions()
 
     # ------------------------
     # Key press handling
@@ -236,10 +261,7 @@ class CodeEditor(QPlainTextEdit):
         completion_prefix = tc.selectedText()
 
         if len(completion_prefix) >= 1 and (completion_prefix.isalnum() or '_' in completion_prefix):
-            if self.use_jedi:
-                self.update_completions_with_jedi()
-            else:
-                self.update_completions()
+            self.update_completions()
             self.completer.setCompletionPrefix(completion_prefix)
             rect = self.cursorRect()
             rect.setWidth(

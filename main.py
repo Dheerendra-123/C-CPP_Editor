@@ -17,7 +17,7 @@ def get_icon_path():
         base_path = sys._MEIPASS
     else:
         base_path = os.path.abspath(".")
-    return os.path.join(base_path, "resources", "icon.ico")
+    return os.path.join(base_path, "resources", "cpp.ico")
 
 app = QApplication(sys.argv)
 app.setWindowIcon(QIcon(get_icon_path()))
@@ -742,7 +742,7 @@ class CustomTabBar(QTabBar):
 class PythonIDE(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Python IDE")
+        self.setWindowTitle("C/C++ IDE")
         self.setWindowIcon(QIcon(get_icon_path())) 
         self.setGeometry(100, 100, 1200, 800)
         self.init_ui()
