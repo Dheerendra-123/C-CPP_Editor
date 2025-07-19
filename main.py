@@ -97,6 +97,7 @@ class CppRunner(QThread):
         compile_cmd = [compiler, self.file_path, '-o', output_exe]
         
         self.output_signal.emit(f"Running: {' '.join(compile_cmd)}\n")
+        self.output_signal.emit("\n")
         
         try:
             compile_result = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=30)
@@ -126,7 +127,8 @@ class CppRunner(QThread):
             return
 
         # Signal to create and run the process in main thread
-        self.output_signal.emit(f"--- Running {os.path.basename(output_exe)} ---\n")
+        # self.output_signal.emit(f"--- Running {os.path.basename(output_exe)} ---\n")
+        self.output_signal.emit("\n")
         self.process_created.emit(output_exe)
 
 
@@ -1356,29 +1358,38 @@ class PythonIDE(QMainWindow):
     def closeEvent(self, event):
         try:
             if hasattr(self, 'terminal') and self.terminal:
-                self.terminal.stop_process()
-                import time
-                timeout = 3.0 
-                start_time = time.time()
-                
-                while (hasattr(self.terminal, 'process') and 
-                       self.terminal.process and 
-                       self.terminal.process.state() == QProcess.Running):
-                    
-                    QApplication.processEvents()
-                    time.sleep(0.1)
-                    
-                    if time.time() - start_time > timeout:
-                        if self.terminal.process:
-                            self.terminal.process.kill()
-                            self.terminal.process.waitForFinished(1000)
-                        break
- 
+                if hasattr(self.terminal, 'stop_process') and callable(self.terminal.stop_process):
+                    self.terminal.stop_process()
+
                 if hasattr(self.terminal, 'process') and self.terminal.process:
-                    self.terminal.process.deleteLater()
-                    
+                    process = self.terminal.process
+
+                    if process.state() == QProcess.Running:
+                        process.terminate()
+
+                        if not process.waitForFinished(3000): 
+                            print("Process didn't terminate gracefully, forcing kill...")
+                            process.kill()
+                            process.waitForFinished(1000)
+
+                    try:
+                        process.deleteLater()
+                    except RuntimeError:
+                        pass
+
+                    self.terminal.process = None
+        
         except Exception as e:
             print(f"Error during cleanup: {e}")
+
+            try:
+                if (hasattr(self, 'terminal') and self.terminal and 
+                    hasattr(self.terminal, 'process') and self.terminal.process):
+                    if self.terminal.process.state() == QProcess.Running:
+                        self.terminal.process.kill()
+                        self.terminal.process.waitForFinished(500)
+            except:
+                pass  
         
         finally:
             event.accept()

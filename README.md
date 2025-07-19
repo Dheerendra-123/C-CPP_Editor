@@ -1,1 +1,1 @@
-# C-C-IDE
+# C-CPP-IDE
