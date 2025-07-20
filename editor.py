@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import QPlainTextEdit, QTextEdit, QCompleter, QWidget
-from PyQt5.QtGui import QTextCursor, QFont, QPainter, QColor, QTextFormat
+from PyQt5.QtWidgets import QPlainTextEdit, QTextEdit, QCompleter, QWidget,QAction
+from PyQt5.QtGui import QTextCursor, QFont, QPainter, QColor, QTextFormat,QKeySequence
 from PyQt5.QtCore import Qt, QStringListModel, QRect, QSize
 import re
 
@@ -26,7 +26,6 @@ class CodeEditor(QPlainTextEdit):
         self.setFont(QFont("Consolas", 12))
         self.highlighter = CppHighlighter(self.document())
 
-        # Line number area
         self.lineNumberArea = LineNumberArea(self)
         self.blockCountChanged.connect(self.update_line_number_area_width)
         self.updateRequest.connect(self.update_line_number_area)
@@ -34,7 +33,6 @@ class CodeEditor(QPlainTextEdit):
         self.update_line_number_area_width(0)
         self.highlight_current_line()
 
-        # Autocomplete
         self.completer = QCompleter()
         self.completer.setModel(QStringListModel())
         self.completer.setWidget(self)
@@ -43,10 +41,19 @@ class CodeEditor(QPlainTextEdit):
         self.completer.activated.connect(self.insert_completion)
         self.setup_completer_style()
 
+    def contextMenuEvent(self, event):
+        menu = self.createStandardContextMenu()
+        run_action = QAction("▶ Compile and Run", self)
+        run_action.setShortcut(QKeySequence("Ctrl+R")) 
+        font = QFont()
+        font.setPointSize(10)  
+        run_action.setFont(font)
+        main_win = self.window()
+        if hasattr(main_win, 'run_current_file'):
+            run_action.triggered.connect(main_win.run_current_file)
+        menu.insertAction(menu.actions()[0], run_action)
+        menu.exec_(event.globalPos())
 
-    # ------------------------
-    # Line number methods
-    # ------------------------
     def line_number_area_width(self):
         digits = len(str(max(1, self.blockCount())))
         space = 10 + self.fontMetrics().horizontalAdvance('9') * digits
@@ -99,9 +106,6 @@ class CodeEditor(QPlainTextEdit):
         selection.cursor.clearSelection()
         self.setExtraSelections([selection])
 
-    # ------------------------
-    # Autocomplete methods
-    # ------------------------
     def setup_completer_style(self):
         popup = self.completer.popup()
         popup.setStyleSheet("""
@@ -230,9 +234,7 @@ class CodeEditor(QPlainTextEdit):
         suggestions = sorted([s for s in suggestions if s and len(s) > 1])
         self.completer.model().setStringList(suggestions)
 
-    # ------------------------
-    # Key press handling
-    # ------------------------
+
     def keyPressEvent(self, event):
         if self.completer.popup().isVisible():
             if event.key() in (Qt.Key_Enter, Qt.Key_Return, Qt.Key_Tab):
