@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 
-A lightweight, modern, and customizable IDE for C and C++ development, built entirely with **Python** and **PyQt5**. Features a multi-tab editor, integrated terminal, syntax highlighting, autocompletion, and support for compiling and running C/C++ code — all in a clean and minimal interface.
+A lightweight, modern, and customizable Code Editor for C and C++ development, built entirely with **Python** and **PyQt5**. Features a multi-tab editor, integrated terminal, syntax highlighting, autocompletion, and support for compiling and running C/C++ code — all in a clean and minimal interface.
 
 ![IDE Screenshot](resources/ide.png)
 
@@ -230,7 +230,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 
 <p align="center">
-  Made with ❤️ by the C/C++ IDE team
+  Made with ❤️ by the C/C++ Code Editor team
 </p>
 
 <p align="center">
